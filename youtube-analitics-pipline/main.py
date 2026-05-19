@@ -78,11 +78,24 @@ def get_latest_video_id(youtube, channel_id):
 # Step 2: ライブ判定
 # =========================
 
-def check_video(youtube, video_id):
+def check_video(youtube, video_id, state_manager):
+    # video_ids = []
+
+    # for cid, data in state_manager.state.items():
+
+    #     video_id = data.get("video_id")
+
+    #     if video_id:
+    #         video_ids.append(video_id)
+
+    # if not video_ids:
+    #     return {}
 
     v = youtube.videos().list(
-        part="liveStreamingDetails",
-        id=",".join(video_id)
+        part="snippet, liveStreamingDetails",
+        id=",".join(video_id) # 問題
+        # id="F3i30BIJmtY" //test YMD
+        # id=video_id
     ).execute()
 
     items = v.get("items", [])
@@ -132,7 +145,7 @@ def run(youtube, state_manager, channel_ids):
         if not video_id:
             continue
 
-        result = check_video(youtube, video_id)
+        result = check_video(youtube, video_id, state_manager)
 
         if result and result["is_live"]:
             state_manager.update_channel(cid, {
