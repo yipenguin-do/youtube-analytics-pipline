@@ -49,30 +49,40 @@ class StateManager:
 # Step 1: 最新動画取得
 # =========================
 
-def get_latest_video_id(youtube, channel_id):
-    ch = youtube.channels().list(
+def get_uploads_map(youtube, channel_ids):
+
+    res = youtube.channels().list(
         part="contentDetails",
-        id=channel_id
+        id=",".join(channel_ids)
     ).execute()
 
-    items = ch.get("items", [])
-    if not items:
-        return None
+    uploads_map = {}
 
-    uploads = items[0]["contentDetails"]["relatedPlaylists"]["uploads"]
+    for item in res.get("items", []):
+
+        cid = item["id"]
+
+        uploads = item["contentDetails"]["relatedPlaylists"]["uploads"]
+
+        uploads_map[cid] = uploads
+
+    return uploads_map
+
+
+def get_latest_video_id(youtube, uploads_playlist_id):
 
     pl = youtube.playlistItems().list(
         part="snippet",
-        playlistId=uploads,
+        playlistId=uploads_playlist_id,
         maxResults=1
     ).execute()
 
     items = pl.get("items", [])
+
     if not items:
         return None
 
     return items[0]["snippet"]["resourceId"]["videoId"]
-
 
 # =========================
 # Step 2: ライブ判定
@@ -136,38 +146,30 @@ def check_video(youtube, state_manager):
 
 def run(youtube, state_manager, channel_ids):
 
-    # -------------------------
-    # Step1:
-    # 最新video_id収集
-    # -------------------------
+    # ① 全チャンネルのuploadsを1回で取得
+    uploads_map = get_uploads_map(youtube, channel_ids)
 
+    # ② 最新video_id取得（playlistItemsはそのまま）
     for cid in channel_ids:
 
         state_manager.init_channel(cid)
 
-        video_id = get_latest_video_id(youtube, cid)
+        uploads = uploads_map.get(cid)
+
+        if not uploads:
+            continue
+
+        video_id = get_latest_video_id(youtube, uploads)
 
         if not video_id:
             continue
 
-        # 先に保存
         state_manager.state[cid]["video_id"] = video_id
 
-    # -------------------------
-    # Step2:
-    # 一括ライブ判定
-    # -------------------------
+    # ③ ライブ判定（既存）
+    results = check_video(youtube, state_manager)
 
-    results = check_video(
-        youtube,
-        state_manager
-    )
-
-    # -------------------------
-    # Step3:
-    # state更新
-    # -------------------------
-
+    # ④ state更新（変更なし）
     for cid, data in state_manager.state.items():
 
         video_id = data.get("video_id")
@@ -195,7 +197,6 @@ def run(youtube, state_manager, channel_ids):
             })
 
         print(cid, "->", state_manager.state[cid])
-
 
 # =========================
 # bootstrap
