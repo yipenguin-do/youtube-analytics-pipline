@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 
 import feedparser
 import pandas as pd
+import schedule
+import time
 import json
 import os
 
@@ -39,7 +41,6 @@ class StateManager:
 
     def update_channel(self, channel_id, data):
         self.state[channel_id] = data
-        self.save()
 
     def update_last_checked(self, channel_id):
         now = datetime.now(timezone.utc).isoformat()
@@ -54,7 +55,7 @@ def get_latest_video_id_rss(channel_id):
 
     feed = feedparser.parse(url)
 
-    if not feed.entries[0]:
+    if not feed.entries:
         return None
     
     entry = feed.entries[0]
@@ -171,6 +172,7 @@ def run(youtube, state_manager, channel_ids):
             })
 
         print(cid, "->", state_manager.state[cid])
+        state_manager.save()
 
 # =========================
 # bootstrap
@@ -196,5 +198,19 @@ def main():
     run(youtube, state_manager, channel_ids)
 
 
-if __name__ == "__main__":
+def job():
+    print("=" * 50)
+    print(f"START: {datetime.now()}")
     main()
+    print(f"END  : {datetime.now()}")
+    print("=" * 50)
+
+if __name__ == "__main__":
+
+    job()
+
+    schedule.every(30).minutes.do(job)
+
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
