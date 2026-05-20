@@ -1,6 +1,8 @@
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
 from datetime import datetime, timezone
+
+import feedparser
 import pandas as pd
 import json
 import os
@@ -45,44 +47,20 @@ class StateManager:
         self.save()
 
 
-# =========================
-# Step 1: 最新動画取得
-# =========================
 
-def get_uploads_map(youtube, channel_ids):
+def get_latest_video_id_rss(channel_id):
+    
+    url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
 
-    res = youtube.channels().list(
-        part="contentDetails",
-        id=",".join(channel_ids)
-    ).execute()
+    feed = feedparser.parse(url)
 
-    uploads_map = {}
-
-    for item in res.get("items", []):
-
-        cid = item["id"]
-
-        uploads = item["contentDetails"]["relatedPlaylists"]["uploads"]
-
-        uploads_map[cid] = uploads
-
-    return uploads_map
-
-
-def get_latest_video_id(youtube, uploads_playlist_id):
-
-    pl = youtube.playlistItems().list(
-        part="snippet",
-        playlistId=uploads_playlist_id,
-        maxResults=1
-    ).execute()
-
-    items = pl.get("items", [])
-
-    if not items:
+    if not feed.entries[0]:
         return None
+    
+    entry = feed.entries[0]
 
-    return items[0]["snippet"]["resourceId"]["videoId"]
+    return entry.yt_videoid
+
 
 # =========================
 # Step 2: ライブ判定
@@ -146,33 +124,29 @@ def check_video(youtube, state_manager):
 
 def run(youtube, state_manager, channel_ids):
 
-    # ① 全チャンネルのuploadsを1回で取得
-    uploads_map = get_uploads_map(youtube, channel_ids)
-
-    # ② 最新video_id取得（playlistItemsはそのまま）
+    # ① RSSで最新video_id取得（playlistItems削除）
     for cid in channel_ids:
 
         state_manager.init_channel(cid)
 
-        uploads = uploads_map.get(cid)
-
-        if not uploads:
-            continue
-
-        video_id = get_latest_video_id(youtube, uploads)
+        video_id = get_latest_video_id_rss(cid)
 
         if not video_id:
             continue
 
+        # 既存state更新（video_id差し替え）
         state_manager.state[cid]["video_id"] = video_id
 
-    # ③ ライブ判定（既存）
+    # ② ライブ判定（既存）
     results = check_video(youtube, state_manager)
 
-    # ④ state更新（変更なし）
+    # ③ state更新
     for cid, data in state_manager.state.items():
 
         video_id = data.get("video_id")
+
+        if not video_id:
+            continue
 
         result = results.get(video_id)
 
