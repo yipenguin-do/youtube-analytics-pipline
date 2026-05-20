@@ -78,57 +78,56 @@ def get_latest_video_id(youtube, channel_id):
 # Step 2: ライブ判定
 # =========================
 
-def check_video(youtube, video_id, state_manager):
-    # video_ids = []
+def check_video(youtube, state_manager):
 
-    # for cid, data in state_manager.state.items():
+    video_ids = []
 
-    #     video_id = data.get("video_id")
+    for cid, data in state_manager.state.items():
 
-    #     if video_id:
-    #         video_ids.append(video_id)
+        video_id = data.get("video_id")
 
-    # if not video_ids:
-    #     return {}
+        if video_id:
+            video_ids.append(video_id)
+
+    if not video_ids:
+        return {}
 
     v = youtube.videos().list(
-        part="snippet, liveStreamingDetails",
-        id=",".join(video_id) # 問題
-        # id="F3i30BIJmtY" //test YMD
-        # id=video_id
+        part="snippet,liveStreamingDetails",
+        id=",".join(video_ids)
     ).execute()
 
-    items = v.get("items", [])
+    results = {}
 
-    if not items:
-        return None
+    for item in v.get("items", []):
 
-    item = items[0]
+        vid = item["id"]
 
-    live = item.get("liveStreamingDetails", {})
-    snippet = item.get("snippet", {})
+        live = item.get("liveStreamingDetails", {})
+        snippet = item.get("snippet", {})
 
-    live_broadcast_content = snippet.get("liveBroadcastContent")
+        live_broadcast_content = snippet.get(
+            "liveBroadcastContent"
+        )
 
-    concurrent = live.get("concurrentViewers")
+        concurrent = live.get(
+            "concurrentViewers"
+        )
 
-    is_live = (
-        live_broadcast_content == "live"
-        or concurrent is not None
-    )
+        is_live = (
+            live_broadcast_content == "live"
+            or concurrent is not None
+        )
 
-    if is_live:
-        return {
-            "is_live": True,
+        results[vid] = {
+            "is_live": is_live,
             "started_at": live.get(
                 "actualStartTime"
             ),
             "viewer_count": concurrent
         }
 
-    return {
-        "is_live": False
-    }
+    return results
 
 
 # =========================
@@ -137,7 +136,13 @@ def check_video(youtube, video_id, state_manager):
 
 def run(youtube, state_manager, channel_ids):
 
+    # -------------------------
+    # Step1:
+    # 最新video_id収集
+    # -------------------------
+
     for cid in channel_ids:
+
         state_manager.init_channel(cid)
 
         video_id = get_latest_video_id(youtube, cid)
@@ -145,9 +150,32 @@ def run(youtube, state_manager, channel_ids):
         if not video_id:
             continue
 
-        result = check_video(youtube, video_id, state_manager)
+        # 先に保存
+        state_manager.state[cid]["video_id"] = video_id
+
+    # -------------------------
+    # Step2:
+    # 一括ライブ判定
+    # -------------------------
+
+    results = check_video(
+        youtube,
+        state_manager
+    )
+
+    # -------------------------
+    # Step3:
+    # state更新
+    # -------------------------
+
+    for cid, data in state_manager.state.items():
+
+        video_id = data.get("video_id")
+
+        result = results.get(video_id)
 
         if result and result["is_live"]:
+
             state_manager.update_channel(cid, {
                 "video_id": video_id,
                 "status": "live",
@@ -155,7 +183,9 @@ def run(youtube, state_manager, channel_ids):
                 "viewer_count": result["viewer_count"],
                 "last_checked": datetime.now(timezone.utc).isoformat()
             })
+
         else:
+
             state_manager.update_channel(cid, {
                 "video_id": video_id,
                 "status": "idle",
